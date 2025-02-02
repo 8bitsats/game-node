@@ -1,15 +1,17 @@
-import axios, { Axios } from "axios";
-import GameWorker from "./worker";
-import { ExecutableGameFunctionResponseJSON } from "./function";
+import type { CreateAxiosDefaults } from 'axios';
+import axios from 'axios';
+
+import { ExecutableGameFunctionResponseJSON } from './function';
 import {
   GameAction,
   GameAgent,
   IGameClient,
   Map,
-} from "./interface/GameClient";
+} from './interface/GameClient';
+import GameWorker from './worker';
 
 class GameClient implements IGameClient {
-  public client: Axios | null = null;
+  client: ReturnType<typeof axios.create> | null = null;
   private runnerUrl = "https://game.virtuals.io";
 
   constructor(private apiKey: string) {}
@@ -17,13 +19,15 @@ class GameClient implements IGameClient {
   async init() {
     const accessToken = await this.getAccessToken();
 
-    this.client = axios.create({
+    const config: CreateAxiosDefaults = {
       baseURL: this.runnerUrl,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-    });
+    };
+
+    this.client = axios.create(config);
   }
 
   async getAccessToken() {
@@ -145,6 +149,12 @@ class GameClient implements IGameClient {
     );
 
     return result.data;
+  }
+
+  async listenForVoiceCommands(): Promise<void> {
+    // This base implementation does nothing
+    // Voice commands are implemented in the enhanced version
+    return Promise.resolve();
   }
 }
 

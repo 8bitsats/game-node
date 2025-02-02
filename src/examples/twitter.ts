@@ -1,19 +1,37 @@
-import {
+// Load environment variables
+import dotenv from 'dotenv';
+
+// Create a new instance of GameClient
+import GameClient from '../api';
+import GameFunction, {
   ExecutableGameFunctionResponse,
   ExecutableGameFunctionStatus,
-  GameAgent,
-  GameFunction,
-  GameWorker,
-} from "@virtuals-protocol/game";
+} from '../function';
+import GameWorker from '../worker';
 
-const postTweetFunction = new GameFunction({
+type PostTweetArgs = [
+  { name: "tweet"; description: "The tweet content" },
+  { name: "tweet_reasoning"; description: "The reasoning behind the tweet" }
+];
+
+type SearchTweetsArgs = [
+  { name: "query"; description: "The query to search for" },
+  { name: "reasoning"; description: "The reasoning behind the search" }
+];
+
+type ReplyTweetArgs = [
+  { name: "tweet_id"; description: "The tweet id to reply to" },
+  { name: "reply"; description: "The reply content" }
+];
+
+const postTweetFunction = new GameFunction<PostTweetArgs>({
   name: "post_tweet",
   description: "Post a tweet",
   args: [
     { name: "tweet", description: "The tweet content" },
     { name: "tweet_reasoning", description: "The reasoning behind the tweet" },
   ] as const,
-  executable: async (args, logger) => {
+  executable: async (args, logger: (msg: string) => void) => {
     try {
       // TODO: Implement posting tweet
       logger(`Posting tweet: ${args.tweet}`);
@@ -32,14 +50,14 @@ const postTweetFunction = new GameFunction({
   },
 });
 
-const searchTweetsFunction = new GameFunction({
+const searchTweetsFunction = new GameFunction<SearchTweetsArgs>({
   name: "search_tweets",
   description: "Search tweets and return results",
   args: [
     { name: "query", description: "The query to search for" },
     { name: "reasoning", description: "The reasoning behind the search" },
   ] as const,
-  executable: async (args, logger) => {
+  executable: async (args, logger: (msg: string) => void) => {
     try {
       const query = args.query;
 
@@ -60,14 +78,14 @@ const searchTweetsFunction = new GameFunction({
   },
 });
 
-const replyToTweetFunction = new GameFunction({
+const replyToTweetFunction = new GameFunction<ReplyTweetArgs>({
   name: "reply_to_tweet",
   description: "Reply to a tweet",
   args: [
     { name: "tweet_id", description: "The tweet id to reply to" },
     { name: "reply", description: "The reply content" },
   ] as const,
-  executable: async (args, logger) => {
+  executable: async (args, logger: (msg: string) => void) => {
     try {
       const tweetId = args.tweet_id;
       const reply = args.reply;
@@ -89,50 +107,71 @@ const replyToTweetFunction = new GameFunction({
 });
 
 // Create a worker with the functions
-const postTweetWorker = new GameWorker({
+const twitterWorker = new GameWorker({
   id: "twitter_main_worker",
   name: "Twitter main worker",
   description: "Worker that posts tweets",
   functions: [searchTweetsFunction, replyToTweetFunction, postTweetFunction],
-  // Optional: Get the environment
-  getEnvironment: async () => {
-    return {
-      tweet_limit: 15,
-    };
-  },
 });
 
-// Create an agent with the worker
-const agent = new GameAgent("API_KEY", {
-  name: "Twitter Bot",
-  goal: "Search and reply to tweets",
-  description: "A bot that searches for tweets and replies to them",
-  workers: [postTweetWorker],
-  // Optional: Get the agent state
-  getAgentState: async () => {
-    return {
-      username: "twitter_bot",
-      follower_count: 1000,
-      tweet_count: 10,
-    };
-  },
-});
+dotenv.config();
 
+const VIRTUALS_API_KEY = process.env.VIRTUALS_API_KEY;
+if (!VIRTUALS_API_KEY) {
+  throw new Error('VIRTUALS_API_KEY is required in environment variables');
+}
+
+const gameClient = new GameClient(VIRTUALS_API_KEY);
+
+// Initialize and run
 (async () => {
-  // define custom logger
-  agent.setLogger((agent, msg) => {
-    console.log(`-----[${agent.name}]-----`);
+  // Create an agent
+  const agentData = await gameClient.createAgent(
+    "Twitter Bot",
+    "Search and reply to tweets",
+    "A bot that searches for tweets and replies to them"
+  );
+
+  // Create a map with the twitter worker
+  const mapData = await gameClient.createMap([twitterWorker]);
+
+  // Set up logger
+  const logger = (msg: string) => {
+    console.log(`-----[Twitter Bot]-----`);
     console.log(msg);
     console.log("\n");
-  });
+  };
 
-  // Initialize the agent
-  await agent.init();
+  // Run a task
+  const task = "Search for tweets about AI and reply to them with insightful comments";
+  const submissionId = await gameClient.setTask(agentData.id, task);
 
-  // Run the agent for with 60 seconds interval
-  // this will stop when agent decides to wait
-  await agent.run(60, { verbose: true }); // verbose will give you more information about the agent's actions
+  // Get and execute task actions
+  let gameActionResult = null;
+  while (true) {
+    const action = await gameClient.getTaskAction(
+      agentData.id,
+      submissionId,
+      twitterWorker,
+      gameActionResult,
+      {
+        username: "twitter_bot",
+        follower_count: 1000,
+        tweet_count: 10,
+        tweet_limit: 15,
+      }
+    );
 
-  // if you need more control over the agent, you can use the step method
-  // await agent.step();
-})();
+    if (action.action_type === "wait") {
+      break;
+    }
+
+    // Execute the action and get the result
+    logger(`Executing action: ${action.action_type}`);
+    gameActionResult = {
+      action_id: action.action_args.fn_id,
+      action_status: ExecutableGameFunctionStatus.Done,
+      feedback_message: "Action completed successfully",
+    };
+  }
+})().catch(console.error);

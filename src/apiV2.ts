@@ -1,28 +1,34 @@
-import axios, { Axios } from "axios";
-import { ExecutableGameFunctionResponseJSON } from "./function";
+import type { CreateAxiosDefaults } from 'axios';
+import axios from 'axios';
+
+import { ExecutableGameFunctionResponseJSON } from './function';
 import {
   GameAction,
   GameAgent,
   IGameClient,
   Map,
-} from "./interface/GameClient";
-import GameWorker from "./worker";
+} from './interface/GameClient';
+import GameWorker from './worker';
 
 class GameClientV2 implements IGameClient {
-  public client: Axios;
+  client: ReturnType<typeof axios.create> | null;
   private baseUrl = "https://sdk.game.virtuals.io/v2";
 
   constructor(private apiKey: string) {
-    this.client = axios.create({
+    const config: CreateAxiosDefaults = {
       baseURL: this.baseUrl,
       headers: {
         "Content-Type": "application/json",
         "x-api-key": this.apiKey,
       },
-    });
+    };
+
+    this.client = axios.create(config);
   }
 
   async createMap(workers: GameWorker[]): Promise<Map> {
+    if (!this.client) throw new Error("Client not initialized");
+
     const result = await this.client.post<{ data: Map }>("/maps", {
       data: {
         locations: workers.map((worker) => ({
@@ -41,6 +47,8 @@ class GameClientV2 implements IGameClient {
     goal: string,
     description: string
   ): Promise<GameAgent> {
+    if (!this.client) throw new Error("Client not initialized");
+
     const result = await this.client.post<{ data: GameAgent }>("/agents", {
       data: {
         name,
@@ -60,6 +68,8 @@ class GameClientV2 implements IGameClient {
     environment: Record<string, any>,
     agentState: Record<string, any>
   ): Promise<GameAction> {
+    if (!this.client) throw new Error("Client not initialized");
+
     const payload: { [key in string]: any } = {
       location: worker.id,
       map_id: mapId,
@@ -82,7 +92,10 @@ class GameClientV2 implements IGameClient {
 
     return result.data.data;
   }
+
   async setTask(agentId: string, task: string): Promise<string> {
+    if (!this.client) throw new Error("Client not initialized");
+
     const result = await this.client.post<{ data: { submission_id: string } }>(
       `/agents/${agentId}/tasks`,
       {
@@ -100,6 +113,8 @@ class GameClientV2 implements IGameClient {
     gameActionResult: ExecutableGameFunctionResponseJSON | null,
     environment: Record<string, any>
   ): Promise<GameAction> {
+    if (!this.client) throw new Error("Client not initialized");
+
     const payload: Record<string, any> = {
       environment: environment,
       functions: worker.functions.map((fn) => fn.toJSON()),
@@ -117,6 +132,12 @@ class GameClientV2 implements IGameClient {
     );
 
     return result.data.data;
+  }
+
+  async listenForVoiceCommands(): Promise<void> {
+    // This base implementation does nothing
+    // Voice commands are implemented in the enhanced version
+    return Promise.resolve();
   }
 }
 
